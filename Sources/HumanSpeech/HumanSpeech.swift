@@ -7,53 +7,99 @@ import AVFoundation
 import SwiftUI
 import Speech
 
+
+
+
+//start
+//stop
+//verificar - feita
+//transcrever
+//reset?
 @MainActor
-public class HumanIdentifierManager: NSObject, ObservableObject, SNResultsObserving {
-
-    public var analyzer: SNAudioStreamAnalyzer!
-    public let audioEngine = AVAudioEngine()
-    public var inputFormat: AVAudioFormat!
+public class HumanIdentiferManager: ObservableObject {
     
-    static let shared = HumanIdentifierManager()
+    //definindo nossas variáveis para o microfone e o sound analizys
+    private var engine:           AVAudioEngine?
+    private var inputBus:         AVAudioNodeBus?
+    private var micInputFormat:   AVAudioFormat?
+    private var streamAnalyzer:   SNAudioStreamAnalyzer?
+    private var classifyRequest:  SNClassifySoundRequest?
+    public var resultObserver =  AudioStreamObserver()
+    
 
-    @Published var detectedSound: String = "Nenhum som detectado"
-
-    public override init() {
-        super.init()
-
-        inputFormat = audioEngine.inputNode.inputFormat(forBus: 0)
-        analyzer = SNAudioStreamAnalyzer(format: inputFormat)
-
-        do {
-            let model = try HumanSpeaking(configuration: MLModelConfiguration())
-            let request = try SNClassifySoundRequest(mlModel: model.model)
-            try analyzer.add(request, withObserver: self)
-        } catch {
-            print("ERRO AO CARREGAR MODELO")
-        }
-    }
-
-    public func start() {
-        audioEngine.inputNode.installTap(onBus: 0, bufferSize: 8192, format: inputFormat) {
-            buffer, time in
-            self.analyzer.analyze(buffer, atAudioFramePosition: time.sampleTime)
-        }
-
-        do {
-            try audioEngine.start()
-        } catch {
-            print("Erro ao iniciar áudio: (error)")
-        }
-    }
-
-    public nonisolated func request(_ request: SNRequest, didProduce result: SNResult) {
-        if let classificationResult = result as? SNClassificationResult,
-           let classification = classificationResult.classifications.first {
-            let identifier = classification.identifier
-            DispatchQueue.main.async {
-                self.detectedSound = "\(identifier) ((String(classification.confidence * 100))%)"
-                print("SOM DETECTADO: (self.detectedSound)")
+    let model = try? HumanSpeaking(configuration: MLModelConfiguration())
+    
+    
+    init() {
+        //Initializing the engine
+        engine = AVAudioEngine()
+            
+        //Getting the built-in microphone audio bus and saving its format
+        inputBus = AVAudioNodeBus(0)
+            guard let inputBus = inputBus else {
+            fatalError()
             }
+        
+        micInputFormat = engine?.inputNode.inputFormat(forBus: inputBus)
+            
+        guard let micInputFormat = micInputFormat else {
+            fatalError("Could not retrieve microphone input format")
         }
+        
+        startEngine()
+        //Initialiting sound stream analyzer with the microphone audio format
+        streamAnalyzer = SNAudioStreamAnalyzer(format: micInputFormat)
+        //Setup the custom sound classifier
+        classifierSetup()
+
     }
+    
+    private func startEngine() {
+            
+            guard let engine = engine else {
+                fatalError("Could not instantiate audio engine")
+            }
+            do {
+                try engine.start()
+            }
+            catch {
+                fatalError("Unable to start audio engine: \(error.localizedDescription)")
+            }
+            
+        }
+    
+    private func classifierSetup() {
+            let defaultConfig = MLModelConfiguration()
+            let soundClassifier = try? HumanSpeaking(configuration: defaultConfig)
+            
+            guard let soundClassifier = soundClassifier else{
+                fatalError("Could not instantiate sound classifier")
+            }
+            classifyRequest = try? SNClassifySoundRequest(mlModel: soundClassifier.model)
+        }
+    
+    
+    
+    
+    public func makeRequest(_ customModel: MLModel? = nil) throws -> SNClassifySoundRequest {
+        // If applicable, create a request with a custom sound classification model
+        
+        if let model = self.model {
+            let customRequest = try SNClassifySoundRequest(mlModel: model.model)
+            return customRequest
+        }
+        
+        fatalError("Couldn't create a request.")
+    }
+    
+//    public func start() {
+//        //começar a gravar
+//        
+//        
+//    }
+//    
+//    public func stop() {
+//        //parar de gravar
+//    }
+
 }
