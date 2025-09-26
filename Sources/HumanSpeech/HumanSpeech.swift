@@ -6,7 +6,8 @@ import CoreML
 import SoundAnalysis
 import SwiftUI
 
-public class HumanIdentifierManager: NSObject, ObservableObject, SNResultsObserving {
+@MainActor
+public class HumanIdentifierManager: NSObject, ObservableObject, @preconcurrency SNResultsObserving {
 
     public let engine = AVAudioEngine()
     public var analyzer: SNAudioStreamAnalyzer?
