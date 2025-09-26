@@ -6,8 +6,7 @@ import CoreML
 import SoundAnalysis
 import SwiftUI
 
-@MainActor
-public class HumanIdentifierManager: NSObject, ObservableObject, @preconcurrency SNResultsObserving {
+public class HumanIdentifierManager: NSObject, ObservableObject, SNResultsObserving {
 
     public let engine = AVAudioEngine()
     public var analyzer: SNAudioStreamAnalyzer?
@@ -17,13 +16,11 @@ public class HumanIdentifierManager: NSObject, ObservableObject, @preconcurrency
 
     public override init() {
         super.init()
-        // Carrega o modelo
         if let model = try? HumanSpeaking(configuration: MLModelConfiguration()) {
             request = try? SNClassifySoundRequest(mlModel: model.model)
         }
     }
 
-    // MARK: - Start / Stop
     public func start() {
         AVAudioSession.sharedInstance().requestRecordPermission { [weak self] granted in
             guard granted, let self = self else { return }
@@ -58,13 +55,17 @@ public class HumanIdentifierManager: NSObject, ObservableObject, @preconcurrency
     }
 
     // MARK: - SNResultsObserving
-     public func request(_ request: SNRequest, didProduce result: SNResult) {
+    nonisolated public func request(_ request: SNRequest, didProduce result: SNResult) {
         guard let res = result as? SNClassificationResult,
               let top = res.classifications.first else { return }
 
-        // copie valores primitivos para segurança de thread
         let identifier = top.identifier
         let confidence = top.confidence
+
+        // Atualiza UI na Main Thread
+        DispatchQueue.main.async { [weak self] in
+            self?.detectedSound = "\(identifier) \(Int(confidence * 100))%"
+        }
     }
 
     nonisolated public func request(_ request: SNRequest, didFailWithError error: Error) {
@@ -75,6 +76,7 @@ public class HumanIdentifierManager: NSObject, ObservableObject, @preconcurrency
         print("SoundAnalysis request did complete")
     }
 }
+
 
 //@MainActor
 //public class HumanIdentifierManager: NSObject, ObservableObject, SNResultsObserving {
