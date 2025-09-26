@@ -30,7 +30,7 @@ public class HumanIdentiferManager: ObservableObject {
     let model = try? HumanSpeaking(configuration: MLModelConfiguration())
     
     
-    init() {
+    public init() {
         //Initializing the engine
         engine = AVAudioEngine()
             
