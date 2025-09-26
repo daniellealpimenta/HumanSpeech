@@ -54,7 +54,7 @@ public class HumanIdentiferManager: ObservableObject {
 
     }
     
-    private func startEngine() {
+     public func startEngine() {
             
             guard let engine = engine else {
                 fatalError("Could not instantiate audio engine")
@@ -68,7 +68,7 @@ public class HumanIdentiferManager: ObservableObject {
             
         }
     
-    private func classifierSetup() {
+    public func classifierSetup() {
             let defaultConfig = MLModelConfiguration()
             let soundClassifier = try? HumanSpeaking(configuration: defaultConfig)
             
