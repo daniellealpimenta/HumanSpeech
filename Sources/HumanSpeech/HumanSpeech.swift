@@ -8,7 +8,7 @@ import SwiftUI
 import Speech
 
 @MainActor
-class HumanIdentifierManager: NSObject, ObservableObject, SNResultsObserving {
+public class HumanIdentifierManager: NSObject, ObservableObject, SNResultsObserving {
 
     public var analyzer: SNAudioStreamAnalyzer!
     public let audioEngine = AVAudioEngine()
@@ -18,7 +18,7 @@ class HumanIdentifierManager: NSObject, ObservableObject, SNResultsObserving {
 
     @Published var detectedSound: String = "Nenhum som detectado"
 
-    override init() {
+    public override init() {
         super.init()
 
         inputFormat = audioEngine.inputNode.inputFormat(forBus: 0)
@@ -33,7 +33,7 @@ class HumanIdentifierManager: NSObject, ObservableObject, SNResultsObserving {
         }
     }
 
-    func start() {
+    public func start() {
         audioEngine.inputNode.installTap(onBus: 0, bufferSize: 8192, format: inputFormat) {
             buffer, time in
             self.analyzer.analyze(buffer, atAudioFramePosition: time.sampleTime)
@@ -46,7 +46,7 @@ class HumanIdentifierManager: NSObject, ObservableObject, SNResultsObserving {
         }
     }
 
-    nonisolated func request(_ request: SNRequest, didProduce result: SNResult) {
+    public nonisolated func request(_ request: SNRequest, didProduce result: SNResult) {
         if let classificationResult = result as? SNClassificationResult,
            let classification = classificationResult.classifications.first {
             let identifier = classification.identifier
