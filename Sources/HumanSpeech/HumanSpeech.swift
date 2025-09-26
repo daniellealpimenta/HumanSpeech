@@ -4,13 +4,9 @@
 import AVFoundation
 import CoreML
 import SoundAnalysis
-import Speech
 import SwiftUI
 
-@MainActor
-public class HumanidentifierManager: NSObject, ObservableObject,
-    SNResultsObserving
-{
+public class HumanIdentifierManager: NSObject, ObservableObject, SNResultsObserving {
 
     public let engine = AVAudioEngine()
     public var analyzer: SNAudioStreamAnalyzer?
@@ -21,19 +17,16 @@ public class HumanidentifierManager: NSObject, ObservableObject,
     public override init() {
         super.init()
         // Carrega o modelo
-        if let model = try? HumanSpeaking(configuration: MLModelConfiguration())
-        {
+        if let model = try? HumanSpeaking(configuration: MLModelConfiguration()) {
             request = try? SNClassifySoundRequest(mlModel: model.model)
         }
     }
 
+    // MARK: - Start / Stop
     public func start() {
-        // Pede permissão rápida
-        AVAudioSession.sharedInstance().requestRecordPermission { granted in
-            guard granted else { return }
-            DispatchQueue.main.async {
-                self.setupAndStart()
-            }
+        AVAudioSession.sharedInstance().requestRecordPermission { [weak self] granted in
+            guard granted, let self = self else { return }
+            self.setupAndStart()
         }
     }
 
@@ -44,43 +37,42 @@ public class HumanidentifierManager: NSObject, ObservableObject,
         analyzer = SNAudioStreamAnalyzer(format: inputFormat)
         try? analyzer?.add(request, withObserver: self)
 
-        engine.inputNode.installTap(
-            onBus: 0,
-            bufferSize: 8192,
-            format: inputFormat
-        ) {
-            buffer,
-            time in
-            self.analyzer?.analyze(
-                buffer,
-                atAudioFramePosition: time.sampleTime
-            )
+        engine.inputNode.installTap(onBus: 0, bufferSize: 8192, format: inputFormat) { [weak self] buffer, time in
+            self?.analyzer?.analyze(buffer, atAudioFramePosition: time.sampleTime)
         }
 
-        try? AVAudioSession.sharedInstance().setCategory(.record)
-        try? AVAudioSession.sharedInstance().setActive(true)
-        try? engine.start()
-    }
-
-    // SNResultsObserving
-    nonisolated public func request(
-        _ request: SNRequest,
-        didProduce result: SNResult
-    ) {
-        if let res = result as? SNClassificationResult,
-            let top = res.classifications.first
-        {
-
-            // copia para valores thread-safe
-            let identifier = top.identifier
-            let confidence = top.confidence
-
-            DispatchQueue.main.async { [weak self] in
-                self?.detectedSound = "\(identifier) \(Int(confidence * 100))%"
-            }
+        do {
+            try AVAudioSession.sharedInstance().setCategory(.record, mode: .measurement)
+            try AVAudioSession.sharedInstance().setActive(true)
+            try engine.start()
+        } catch {
+            print("Erro ao iniciar áudio: \(error)")
         }
     }
 
+    public func stop() {
+        engine.inputNode.removeTap(onBus: 0)
+        engine.stop()
+        try? AVAudioSession.sharedInstance().setActive(false)
+    }
+
+    // MARK: - SNResultsObserving
+     public func request(_ request: SNRequest, didProduce result: SNResult) {
+        guard let res = result as? SNClassificationResult,
+              let top = res.classifications.first else { return }
+
+        // copie valores primitivos para segurança de thread
+        let identifier = top.identifier
+        let confidence = top.confidence
+    }
+
+    nonisolated public func request(_ request: SNRequest, didFailWithError error: Error) {
+        print("SoundAnalysis failed: \(error)")
+    }
+
+    nonisolated public func requestDidComplete(_ request: SNRequest) {
+        print("SoundAnalysis request did complete")
+    }
 }
 
 //@MainActor
