@@ -1,123 +1,184 @@
 // The Swift Programming Language
 // https://docs.swift.org/swift-book
 
+
 import Foundation
-import Speech
 import AVFoundation
-import Combine
+import Speech
+import Observation
 
-// 1. ISOLAR A CLASSE NO MAIN ACTOR
-// Isso garante que todo o acesso às propriedades da classe seja seguro para a UI.
-@MainActor
-public class AudioManager: ObservableObject {
-    
-    // MARK: - Published Properties
-    @Published public var soundSamples: [Float]
-    @Published public var transcribedText: String = ""
-    @Published public var isRecording: Bool = false
-    
-    // MARK: - Audio Properties
-    private var audioEngine: AVAudioEngine?
-    private var speechRecognizer: SFSpeechRecognizer?
-    private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
-    private var recognitionTask: SFSpeechRecognitionTask?
-    
-    // MARK: - Sample Handling Properties
-    private let numberOfSamples: Int
-    private var currentSample: Int = 0 // Tornada 'private' para melhor encapsulamento
-    private var timer: Timer?
-
-    public init(numberOfSamples: Int = 30) {
-        self.numberOfSamples = numberOfSamples
-        self.soundSamples = [Float](repeating: -50.0, count: numberOfSamples)
-        self.speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "pt-BR"))
-    }
-
-    public func checkPermissions() {
-        SFSpeechRecognizer.requestAuthorization { _ in }
-        AVAudioSession.sharedInstance().requestRecordPermission { _ in }
-    }
-
-    public func startRecording() {
-        guard !isRecording else { return }
+/// A helper for transcribing speech to text using SFSpeechRecognizer and AVAudioEngine.
+public actor SpeechRecognizer: Observable {
+    public enum RecognizerError: Error {
+        case nilRecognizer
+        case notAuthorizedToRecognize
+        case notPermittedToRecord
+        case recognizerIsUnavailable
         
-        do {
-            audioEngine = AVAudioEngine()
-            let audioSession = AVAudioSession.sharedInstance()
-            try audioSession.setCategory(.record, mode: .measurement, options: .duckOthers)
-            try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
-            
-            let inputNode = audioEngine!.inputNode
-            let recordingFormat = inputNode.outputFormat(forBus: 0)
-
-            recognitionRequest = SFSpeechAudioBufferRecognitionRequest()
-            recognitionRequest?.shouldReportPartialResults = true
-            
-            // A closure do recognitionTask roda em uma thread de fundo.
-            recognitionTask = speechRecognizer?.recognitionTask(with: recognitionRequest!) { [weak self] (result, error) in
-                // 2. VOLTAR PARA O MAIN ACTOR USANDO 'TASK'
-                // Precisamos explicitamente voltar ao MainActor para atualizar as propriedades.
-                Task {
-                    guard let self = self else { return }
-                    if let result = result {
-                        self.transcribedText = result.bestTranscription.formattedString
-                    } else if let error = error {
-                        print("Recognition task error: \(error)")
-                        self.stopRecording()
-                    }
-                }
+        public var message: String {
+            switch self {
+            case .nilRecognizer: return "Can't initialize speech recognizer"
+            case .notAuthorizedToRecognize: return "Not authorized to recognize speech"
+            case .notPermittedToRecord: return "Not permitted to record audio"
+            case .recognizerIsUnavailable: return "Recognizer is unavailable"
             }
-            
-            // A closure do installTap roda em uma thread de áudio de alta prioridade.
-            inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { [weak self] (buffer, _) in
-                self?.recognitionRequest?.append(buffer)
-                
-                // 2. VOLTAR PARA O MAIN ACTOR USANDO 'TASK'
-                // Da mesma forma, pulamos para o MainActor para fazer as atualizações.
-                Task {
-                    self?.updateAudioLevel(from: buffer)
-                }
-            }
-
-            audioEngine?.prepare()
-            try audioEngine?.start()
-            
-            self.isRecording = true
-            
-        } catch {
-            print("Error starting audio engine: \(error.localizedDescription)")
-            stopRecording()
         }
     }
-
-    public func stopRecording() {
-        // ... o corpo desta função permanece o mesmo ...
-        recognitionTask?.cancel()
-        recognitionTask = nil
-        recognitionRequest?.endAudio()
-        recognitionRequest = nil
-
-        audioEngine?.stop()
-        audioEngine?.inputNode.removeTap(onBus: 0)
-        audioEngine = nil
+    
+    @MainActor public var transcript: String = ""
+    
+    private var audioEngine: AVAudioEngine?
+    private var request: SFSpeechAudioBufferRecognitionRequest?
+    private var task: SFSpeechRecognitionTask?
+    private let recognizer: SFSpeechRecognizer?
+    
+    /**
+     Initializes a new speech recognizer. If this is the first time you've used the class, it
+     requests access to the speech recognizer and the microphone.
+     */
+    public init() {
+        recognizer = SFSpeechRecognizer()
+        guard recognizer != nil else {
+            transcribe(RecognizerError.nilRecognizer)
+            return
+        }
         
-        try? AVAudioSession.sharedInstance().setActive(false)
-        
-        self.isRecording = false
+        Task {
+            do {
+                guard await SFSpeechRecognizer.hasAuthorizationToRecognize() else {
+                    throw RecognizerError.notAuthorizedToRecognize
+                }
+                guard await AVAudioSession.sharedInstance().hasPermissionToRecord() else {
+                    throw RecognizerError.notPermittedToRecord
+                }
+            } catch {
+                transcribe(error)
+            }
+        }
     }
+    
+    @MainActor public func startTranscribing() {
+        Task {
+            await transcribe()
+        }
+    }
+    
+    @MainActor public func resetTranscript() {
+        Task {
+            await reset()
+        }
+    }
+    
+    @MainActor public func stopTranscribing() {
+        Task {
+            await reset()
+        }
+    }
+    
+    /**
+     Begin transcribing audio.
+     
+     Creates a `SFSpeechRecognitionTask` that transcribes speech to text until you call `stopTranscribing()`.
+     The resulting transcription is continuously written to the published `transcript` property.
+     */
+    private func transcribe() {
+        guard let recognizer, recognizer.isAvailable else {
+            self.transcribe(RecognizerError.recognizerIsUnavailable)
+            return
+        }
+        
+        do {
+            let (audioEngine, request) = try Self.prepareEngine()
+            self.audioEngine = audioEngine
+            self.request = request
+            self.task = recognizer.recognitionTask(with: request, resultHandler: { [weak self] result, error in
+                self?.recognitionHandler(audioEngine: audioEngine, result: result, error: error)
+            })
+        } catch {
+            self.reset()
+            self.transcribe(error)
+        }
+    }
+    
+    /// Reset the speech recognizer.
+    private func reset() {
+        task?.cancel()
+        audioEngine?.stop()
+        audioEngine = nil
+        request = nil
+        task = nil
+    }
+    
+    private static func prepareEngine() throws -> (AVAudioEngine, SFSpeechAudioBufferRecognitionRequest) {
+        let audioEngine = AVAudioEngine()
+        
+        let request = SFSpeechAudioBufferRecognitionRequest()
+        request.shouldReportPartialResults = true
+        
+        let audioSession = AVAudioSession.sharedInstance()
+        try audioSession.setCategory(.playAndRecord, mode: .measurement, options: .duckOthers)
+        try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
+        let inputNode = audioEngine.inputNode
+        
+        let recordingFormat = inputNode.outputFormat(forBus: 0)
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { (buffer: AVAudioPCMBuffer, when: AVAudioTime) in
+            request.append(buffer)
+        }
+        audioEngine.prepare()
+        try audioEngine.start()
+        
+        return (audioEngine, request)
+    }
+    
+    nonisolated private func recognitionHandler(audioEngine: AVAudioEngine, result: SFSpeechRecognitionResult?, error: Error?) {
+        let receivedFinalResult = result?.isFinal ?? false
+        let receivedError = error != nil
+        
+        if receivedFinalResult || receivedError {
+            audioEngine.stop()
+            audioEngine.inputNode.removeTap(onBus: 0)
+        }
+        
+        if let result {
+            transcribe(result.bestTranscription.formattedString)
+        }
+    }
+    
+    
+    nonisolated private func transcribe(_ message: String) {
+        Task { @MainActor in
+            transcript = message
+        }
+    }
+    nonisolated private func transcribe(_ error: Error) {
+        var errorMessage = ""
+        if let error = error as? RecognizerError {
+            errorMessage += error.message
+        } else {
+            errorMessage += error.localizedDescription
+        }
+        Task { @MainActor [errorMessage] in
+            transcript = "<< \(errorMessage) >>"
+        }
+    }
+}
 
-    private func updateAudioLevel(from buffer: AVAudioPCMBuffer) {
-        guard let channelData = buffer.floatChannelData else { return }
-        let channelDataValue = channelData.pointee
-        let channelDataValueArray = UnsafeBufferPointer(start: channelDataValue, count: Int(buffer.frameLength))
-        
-        let rms = sqrt(channelDataValueArray.map { $0 * $0 }.reduce(0, +) / Float(buffer.frameLength))
-        let avgPower = 20 * log10(rms)
-        let normalizedPower = max(-50, avgPower)
-        
-        // 3. REMOVER O DISPATCHQUEUE.MAIN.ASYNC
-        // Não é mais necessário, pois o método inteiro já está garantido de rodar no MainActor.
-        self.soundSamples[self.currentSample] = normalizedPower
-        self.currentSample = (self.currentSample + 1) % self.numberOfSamples
+extension SFSpeechRecognizer {
+    static func hasAuthorizationToRecognize() async -> Bool {
+        await withCheckedContinuation { continuation in
+            requestAuthorization { status in
+                continuation.resume(returning: status == .authorized)
+            }
+        }
+    }
+}
+
+extension AVAudioSession {
+    func hasPermissionToRecord() async -> Bool {
+        await withCheckedContinuation { continuation in
+            AVAudioApplication.requestRecordPermission { authorized in
+                continuation.resume(returning: authorized)
+            }
+        }
     }
 }
