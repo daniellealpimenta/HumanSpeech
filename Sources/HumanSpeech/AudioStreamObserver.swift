@@ -14,7 +14,7 @@ import Speech
 
 @MainActor
 public class AudioStreamObserver: NSObject, SNResultsObserving, ObservableObject {
-    @Published var currentSound: String = ""
+    @Published public var currentSound: String = ""
     
     public nonisolated func request(_ request: SNRequest, didProduce result: SNResult) {
         guard let result = result as? SNClassificationResult else { return }
