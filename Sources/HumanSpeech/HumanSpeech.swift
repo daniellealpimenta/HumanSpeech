@@ -38,14 +38,4 @@ public class ResultsObserver: NSObject, SNResultsObserving {
         print("Analysis complete.")
     }
     
-    public func classifySound() {
-        let audioFileAnalyzer = try! SNAudioFileAnalyzer(url: audioFileURL)
-        
-        let request = try! SNClassifySoundRequest(MLModel: HumanSpeaking().model)
-        
-        do{
-            try? audioFileAnalyzer.add(request, withObserver: observer)
-            try audioFileAnalyzer.analyze()
-        }
-    }
 }
