@@ -59,7 +59,7 @@ public class MicManager: ObservableObject {
         })
     }
     
-    public func stotpMonitoring() {
+    public func stopMonitoring() {
         audioRecorder.stop()
     }
     
