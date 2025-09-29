@@ -77,7 +77,7 @@ public class SpeechManager {
             try audioEngine.start()
             isRecording = true // Atualiza o estado
         } catch {
-            print(error)
+            print(error.localizedDescription)
         }
     }
     
