@@ -5,101 +5,88 @@ import CoreML
 import SoundAnalysis
 import AVFoundation
 import SwiftUI
-import Speech
 
-
-
-
-//start
-//stop
-//verificar - feita
-//transcrever
-//reset?
 @MainActor
 public class HumanIdentiferManager: ObservableObject {
     
-    //definindo nossas variáveis para o microfone e o sound analizys
-    private var engine:           AVAudioEngine?
-    private var inputBus:         AVAudioNodeBus?
-    private var micInputFormat:   AVAudioFormat?
-    private var streamAnalyzer:   SNAudioStreamAnalyzer?
-    private var classifyRequest:  SNClassifySoundRequest?
-    public var resultObserver =  AudioStreamObserver()
-    
+    // Ferramentas de áudio. Agora com uma propriedade para o formato.
+    private let engine = AVAudioEngine()
+    private let streamAnalyzer: SNAudioStreamAnalyzer
+    private let micInputFormat: AVAudioFormat // <- CORREÇÃO 1: Adicionamos esta propriedade
+    private var classifyRequest: SNClassifySoundRequest?
 
-    let model = try? HumanSpeaking(configuration: MLModelConfiguration())
-    
+    public var resultObserver = AudioStreamObserver()
+    @Published public var isAnalyzing = false
     
     public init() {
-        //Initializing the engine
-        engine = AVAudioEngine()
-            
-        //Getting the built-in microphone audio bus and saving its format
-        inputBus = AVAudioNodeBus(0)
-            guard let inputBus = inputBus else {
-            fatalError()
-            }
+        // PREPARAÇÃO: O init agora prepara as ferramentas e guarda o formato.
         
-        micInputFormat = engine?.inputNode.inputFormat(forBus: inputBus)
-            
-        guard let micInputFormat = micInputFormat else {
-            fatalError("Could not retrieve microphone input format")
-        }
+        // Pega o formato de áudio do microfone e guarda na nossa nova propriedade.
+        self.micInputFormat = engine.inputNode.outputFormat(forBus: 0)
         
-        startEngine()
-        //Initialiting sound stream analyzer with the microphone audio format
-        streamAnalyzer = SNAudioStreamAnalyzer(format: micInputFormat)
-        //Setup the custom sound classifier
-        classifierSetup()
-
+        // Cria o analisador de áudio com o formato que guardamos.
+        self.streamAnalyzer = SNAudioStreamAnalyzer(format: micInputFormat)
+        
+        // Cria a requisição com o seu modelo de Machine Learning.
+        setupClassifier()
     }
     
-     public func startEngine() {
-            
-            guard let engine = engine else {
-                fatalError("Could not instantiate audio engine")
-            }
-            do {
-                try engine.start()
-            }
-            catch {
-                fatalError("Unable to start audio engine: \(error.localizedDescription)")
-            }
-            
-        }
+    // MARK: - Funções de Controle Público
     
-    public func classifierSetup() {
-            let defaultConfig = MLModelConfiguration()
-            let soundClassifier = try? HumanSpeaking(configuration: defaultConfig)
-            
-            guard let soundClassifier = soundClassifier else{
-                fatalError("Could not instantiate sound classifier")
-            }
-            classifyRequest = try? SNClassifySoundRequest(mlModel: soundClassifier.model)
-        }
-    
-    
-    
-    
-    public func makeRequest(_ customModel: MLModel? = nil) throws -> SNClassifySoundRequest {
-        // If applicable, create a request with a custom sound classification model
-        
-        if let model = self.model {
-            let customRequest = try SNClassifySoundRequest(mlModel: model.model)
-            return customRequest
+    public func start() async {
+        guard await checkMicrophonePermission() else {
+            print("Permissão para usar o microfone foi negada.")
+            return
         }
         
-        fatalError("Couldn't create a request.")
+        guard let classifyRequest else { return }
+        do {
+            try streamAnalyzer.add(classifyRequest, withObserver: resultObserver)
+        } catch {
+            print("Erro ao adicionar a requisição de análise: \(error.localizedDescription)")
+            return
+        }
+        
+        // CORREÇÃO 1: Usamos a nossa propriedade `micInputFormat` aqui.
+        engine.inputNode.installTap(onBus: 0, bufferSize: 1024, format: micInputFormat) { buffer, time in
+            Task(priority: .userInitiated) {
+                self.streamAnalyzer.analyze(buffer, atAudioFramePosition: time.sampleTime)
+            }
+        }
+        
+        engine.prepare()
+        do {
+            try engine.start()
+            isAnalyzing = true
+        } catch {
+            print("Erro ao iniciar a engine de áudio: \(error.localizedDescription)")
+        }
     }
     
-//    public func start() {
-//        //começar a gravar
-//        
-//        
-//    }
-//    
-//    public func stop() {
-//        //parar de gravar
-//    }
-
+    public func stop() {
+        engine.stop()
+        engine.inputNode.removeTap(onBus: 0)
+        streamAnalyzer.removeAllRequests()
+        isAnalyzing = false
+    }
+    
+    // MARK: - Funções de Configuração Privadas
+    
+    private func setupClassifier() {
+        let defaultConfig = MLModelConfiguration()
+        guard let model = try? HumanSpeaking(configuration: defaultConfig) else {
+            fatalError("Não foi possível carregar o modelo HumanSpeaking.")
+        }
+        
+        self.classifyRequest = try? SNClassifySoundRequest(mlModel: model.model)
+    }
+    
+    // CORREÇÃO 2: A função agora usa 'withCheckedContinuation' para retornar um Bool.
+    private func checkMicrophonePermission() async -> Bool {
+        await withCheckedContinuation { continuation in
+            AVAudioSession.sharedInstance().requestRecordPermission { granted in
+                continuation.resume(returning: granted)
+            }
+        }
+    }
 }
