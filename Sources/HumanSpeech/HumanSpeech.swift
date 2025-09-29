@@ -8,9 +8,9 @@ import CoreML
 import SwiftUI
 
 public class ResultsObserver: NSObject, SNResultsObserving {
-    @Binding public var classificationResult: String
+    @Binding var classificationResult: String
     
-    init(result: Binding<String>){
+    public init(result: Binding<String>){
         _classificationResult = result
     }
     
