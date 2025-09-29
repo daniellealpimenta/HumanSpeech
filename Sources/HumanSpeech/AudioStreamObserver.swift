@@ -17,26 +17,19 @@ import CoreML
 public final class AudioStreamObserver: NSObject, SNResultsObserving, ObservableObject {
     @Published public var currentSound: String = ""
 
-    public override init() {
-        super.init()
-    }
-
-    // SoundAnalysis chama este método em threads arbitrárias.
-    // Declaramos nonisolated + @objc para interoperabilidade ObjC + Swift concurrency.
     @objc public nonisolated func request(_ request: SNRequest, didProduce result: SNResult) {
         guard let result = result as? SNClassificationResult,
               let classification = result.classifications.first else { return }
 
         let identifier = classification.identifier
 
-        // Volta para MainActor de forma segura e explícita.
+        // força atualização no MainActor
         Task { @MainActor in
             self.currentSound = identifier
         }
     }
 
     @objc public nonisolated func request(_ request: SNRequest, didFailWithError error: Error) {
-        // Apenas log: mantém nonisolated para compatibilidade com o framework.
         print("Sound analysis failed: \(error.localizedDescription)")
     }
 
@@ -44,4 +37,5 @@ public final class AudioStreamObserver: NSObject, SNResultsObserving, Observable
         print("Sound analysis request completed successfully!")
     }
 }
+
 
