@@ -12,24 +12,26 @@ import AVFoundation
 import SwiftUI
 import Speech
 
+@MainActor
 public class AudioStreamObserver: NSObject, SNResultsObserving, ObservableObject {
-    @Published public var currentSound: String = ""
-    
-    public func request(_ request: SNRequest, didProduce result: SNResult) {
+    @Published var currentSound: String = ""
+   
+    public nonisolated func request(_ request: SNRequest, didProduce result: SNResult) {
         guard let result = result as? SNClassificationResult else { return }
-        //Only takes the sound with the highest confidence level
         guard let classification = result.classifications.first else { return }
         
         let identifier = classification.identifier
         
-        self.currentSound = identifier
-        
+        Task { @MainActor in
+            self.currentSound = identifier
+        }
     }
-    public func request(_ request: SNRequest, didFailWithError error: Error) {
+
+   public nonisolated func request(_ request: SNRequest, didFailWithError error: Error) {
         print("Sound analysis failed: \(error.localizedDescription)")
     }
     
-    public func requestDidComplete(_ request: SNRequest) {
+    public nonisolated func requestDidComplete(_ request: SNRequest) {
         print("Sound analysis request completed succesfully!")
     }
 }
