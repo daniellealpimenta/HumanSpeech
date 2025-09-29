@@ -13,6 +13,10 @@ public class SpeechManager {
     
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     
+    public init() {
+        
+    }
+    
     public func checkPermission() {
         SFSpeechRecognizer.requestAuthorization { (authStatus) in
             DispatchQueue.main.async {
