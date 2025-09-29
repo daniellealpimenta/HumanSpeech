@@ -37,7 +37,7 @@ public actor SpeechRecognizer: Observable {
      requests access to the speech recognizer and the microphone.
      */
     public init() {
-        recognizer = SFSpeechRecognizer()
+        recognizer = SFSpeechRecognizer(locale: Locale(identifier: "pt-BR"))
         guard recognizer != nil else {
             transcribe(RecognizerError.nilRecognizer)
             return
