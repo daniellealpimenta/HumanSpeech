@@ -6,32 +6,42 @@
 //
 
 
-import CoreML
+import Foundation
 import SoundAnalysis
-import AVFoundation
 import SwiftUI
-import Speech
+import CoreML
 
+// Observador exposto ao MainActor (estado @Published) mas que recebe callbacks
+// do SoundAnalysis de threads quaisquer — por isso os métodos do protocolo são nonisolated + @objc.
 @MainActor
-public class AudioStreamObserver: NSObject, SNResultsObserving, ObservableObject {
+public final class AudioStreamObserver: NSObject, SNResultsObserving, ObservableObject {
     @Published public var currentSound: String = ""
-   
-    public nonisolated func request(_ request: SNRequest, didProduce result: SNResult) {
-        guard let result = result as? SNClassificationResult else { return }
-        guard let classification = result.classifications.first else { return }
-        
+
+    public override init() {
+        super.init()
+    }
+
+    // SoundAnalysis chama este método em threads arbitrárias.
+    // Declaramos nonisolated + @objc para interoperabilidade ObjC + Swift concurrency.
+    @objc public nonisolated func request(_ request: SNRequest, didProduce result: SNResult) {
+        guard let result = result as? SNClassificationResult,
+              let classification = result.classifications.first else { return }
+
         let identifier = classification.identifier
-        
+
+        // Volta para MainActor de forma segura e explícita.
         Task { @MainActor in
             self.currentSound = identifier
         }
     }
 
-   public nonisolated func request(_ request: SNRequest, didFailWithError error: Error) {
+    @objc public nonisolated func request(_ request: SNRequest, didFailWithError error: Error) {
+        // Apenas log: mantém nonisolated para compatibilidade com o framework.
         print("Sound analysis failed: \(error.localizedDescription)")
     }
-    
-    public nonisolated func requestDidComplete(_ request: SNRequest) {
-        print("Sound analysis request completed succesfully!")
+
+    @objc public nonisolated func requestDidComplete(_ request: SNRequest) {
+        print("Sound analysis request completed successfully!")
     }
 }
+
