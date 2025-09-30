@@ -8,6 +8,7 @@ import Speech
 import Observation
 
 /// A helper for transcribing speech to text using SFSpeechRecognizer and AVAudioEngine.
+// Vascao
 public actor SpeechRecognizer: Observable, ObservableObject {
     public enum RecognizerError: Error {
         case nilRecognizer
