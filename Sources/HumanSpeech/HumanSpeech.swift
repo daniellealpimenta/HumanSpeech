@@ -71,7 +71,11 @@ public actor SpeechRecognizer: Observable {
     
     @MainActor public func stopTranscribing() {
         Task {
-            await reset()
+            Task {
+                    // espera 0.5 segundos (500_000_000 nanossegundos)
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                    await reset()
+                }
         }
     }
     
