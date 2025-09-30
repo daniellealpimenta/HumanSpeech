@@ -65,8 +65,8 @@ public actor SpeechRecognizer: Observable {
     
     @MainActor public func resetTranscript() {
         Task {
-            self.transcript = ""
             await reset()
+            self.transcript = ""
         }
     }
     
