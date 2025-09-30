@@ -25,7 +25,7 @@ public actor SpeechRecognizer: Observable {
         }
     }
     
-    @MainActor public var transcript: String = ""
+    @MainActor @Published public var transcript: String = ""
     
     private var audioEngine: AVAudioEngine?
     private var request: SFSpeechAudioBufferRecognitionRequest?
