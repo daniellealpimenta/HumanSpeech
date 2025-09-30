@@ -250,7 +250,7 @@ extension SFSpeechRecognizer {
 }
 
 extension AVAudioSession {
-    /    /// Solicita ou consulta a permissao do sistema para gravar audio.
+    /// Solicita ou consulta a permissao do sistema para gravar audio.
     /// - Retorno: `true` se autorizado, `false` se negado.
     /// - Observacao: o primeiro acesso pode abrir dialog de permissao.
     func hasPermissionToRecord() async -> Bool {
