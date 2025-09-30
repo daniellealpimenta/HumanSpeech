@@ -7,8 +7,70 @@ import AVFoundation
 import Speech
 import Observation
 
-/// A helper for transcribing speech to text using SFSpeechRecognizer and AVAudioEngine.
-// Vascao
+/**
+ # HumanSpeech.SpeechRecognizer
+ Helper para transcrever voz em texto usando `SFSpeechRecognizer` e `AVAudioEngine`.
+
+ ## Visao geral
+ Este tipo coordena permissao de microfone e reconhecimento de fala (locale "pt-BR"),
+ inicia/paralisa captura de audio, e publica o texto transcrito em `transcript`.
+
+ ## Disponibilidade
+ - iOS 15+ (recomendado)
+ - macOS 12+ (com microfone)
+
+ ## Requisitos
+ - Info.plist:
+   - `NSSpeechRecognitionUsageDescription`
+   - `NSMicrophoneUsageDescription`
+ - Frameworks: `Speech`, `AVFoundation`
+
+ ## Variaveis principais
+ - `transcript`: String publicada com o texto parcial/final.
+ - `audioEngine`: motor de audio em execucao.
+ - `request`: fluxo de buffers de audio para o Speech.
+ - `task`: tarefa de reconhecimento em andamento.
+ - `recognizer`: reconhecedor configurado para "pt-BR".
+
+ ## Metodos
+ - `startTranscribing()`: inicia a transcricao continua.
+ - `stopTranscribing()`: aguarda 1.5s e encerra a captura com limpeza.
+ - `resetTranscript()`: limpa o texto e reseta estado interno.
+
+ ## Como implementar (passo a passo)
+ 1. Crie uma instancia de `SpeechRecognizer`.
+ 2. Garanta as permissoes: a inicializacao solicita Speech e Microfone.
+ 3. Chame `startTranscribing()` para comecar.
+ 4. Observe `transcript` (MainActor) para atualizar sua UI.
+ 5. Para encerrar, chame `stopTranscribing()` (aguarda 1.5s antes de parar).
+ 6. Para limpar a UI, use `resetTranscript()`.
+
+ ## Observacoes
+ - `transcript` e atualizado no MainActor para manter a UI consistente.
+ - Em caso de erro, `transcript` recebe uma mensagem entre `<< ... >>`.
+ - `recognitionTask` usa `shouldReportPartialResults = true` para resultados parciais.
+ - `actor` isola estado; handlers marcam metodos como `nonisolated` quando necessario.
+ - Categoria de audio: `.playAndRecord` com `.duckOthers` para reduzir volumes de outros apps.
+
+ ## Exemplo de uso (simples)
+ ```swift
+ @State private var texto = ""
+ let sr = SpeechRecognizer()
+
+ var body: some View {
+   VStack {
+     Text(texto)
+     HStack {
+       Button("Iniciar") { Task { await sr.startTranscribing() } }
+       Button("Parar") { Task { await sr.stopTranscribing() } }
+       Button("Limpar") { Task { await sr.resetTranscript() } }
+     }
+   }
+   .task { for await t in sr.$transcript.values { texto = t } }
+ }
+ ```
+ */
+
 public actor SpeechRecognizer: Observable, ObservableObject {
     public enum RecognizerError: Error {
         case nilRecognizer
@@ -33,10 +95,7 @@ public actor SpeechRecognizer: Observable, ObservableObject {
     private var task: SFSpeechRecognitionTask?
     private let recognizer: SFSpeechRecognizer?
     
-    /**
-     Initializes a new speech recognizer. If this is the first time you've used the class, it
-     requests access to the speech recognizer and the microphone.
-     */
+    /// Inicializa o reconhecedor (pt-BR) e solicita permissoes de fala e microfone.
     public init() {
         recognizer = SFSpeechRecognizer(locale: Locale(identifier: "pt-BR"))
         guard recognizer != nil else {
@@ -58,12 +117,17 @@ public actor SpeechRecognizer: Observable, ObservableObject {
         }
     }
     
+    /// Inicia a transcricao continua.s.
+    /// - Atualiza: `transcript` com string formatada do melhor reconhecimento.
+    /// - Observacao: se ja existir uma task, ela sera substituida apos `reset()` interno no erro.
     @MainActor public func startTranscribing() {
         Task {
             await transcribe()
         }
     }
     
+    /// Limpa `transcript` e reseta estado interno.
+    /// - Efeitos: cancela task em andamento, para o audio e zera buffers.
     @MainActor public func resetTranscript() {
         Task {
             await reset()
@@ -71,6 +135,8 @@ public actor SpeechRecognizer: Observable, ObservableObject {
         }
     }
     
+    /// Encerra a transcricao com atraso controlado.
+    /// - Importante: aguarda 1.5s antes de parar para nao cortar o final da fala.
     @MainActor public func stopTranscribing() {
         Task {
             // espera 1.5 segundos (1_500_000_000 nanossegundos)
@@ -79,12 +145,8 @@ public actor SpeechRecognizer: Observable, ObservableObject {
         }
     }
     
-    /**
-     Begin transcribing audio.
-     
-     Creates a `SFSpeechRecognitionTask` that transcribes speech to text until you call `stopTranscribing()`.
-     The resulting transcription is continuously written to the published `transcript` property.
-     */
+    /// Cria `request` e `recognitionTask` se o reconhecedor estiver disponivel.
+    /// - Em erro: chama `reset()` e publica mensagem amigavel em `transcript`.
     private func transcribe() {
         guard let recognizer, recognizer.isAvailable else {
             self.transcribe(RecognizerError.recognizerIsUnavailable)
@@ -104,7 +166,8 @@ public actor SpeechRecognizer: Observable, ObservableObject {
         }
     }
     
-    /// Reset the speech recognizer.
+    /// Finaliza e limpa recursos de reconhecimento e audio.
+    /// - Efeitos: `task.cancel()`, `audioEngine.stop()`, zera `request` e `task`.
     private func reset() {
         task?.cancel()
         audioEngine?.stop()
@@ -113,6 +176,7 @@ public actor SpeechRecognizer: Observable, ObservableObject {
         task = nil
     }
     
+    /// Configura `AVAudioEngine`, `AVAudioSession` e o tap de entrada; retorna (engine, request).
     private static func prepareEngine() throws -> (AVAudioEngine, SFSpeechAudioBufferRecognitionRequest) {
         let audioEngine = AVAudioEngine()
         
@@ -134,6 +198,9 @@ public actor SpeechRecognizer: Observable, ObservableObject {
         return (audioEngine, request)
     }
     
+    /// Trata resultados/erros da tarefa.
+    /// - Se `isFinal` ou houver erro: para engine e remove o tap.
+    /// - Encaminha `bestTranscription.formattedString` para `transcript`.
     nonisolated private func recognitionHandler(audioEngine: AVAudioEngine, result: SFSpeechRecognitionResult?, error: Error?) {
         let receivedFinalResult = result?.isFinal ?? false
         let receivedError = error != nil
@@ -148,12 +215,14 @@ public actor SpeechRecognizer: Observable, ObservableObject {
         }
     }
     
-    
+    /// Publica mensagem no MainActor em `transcript`.
     nonisolated private func transcribe(_ message: String) {
         Task { @MainActor in
             transcript = message
         }
     }
+    
+    /// Converte um erro em mensagem amigavel e publica em `transcript`.
     nonisolated private func transcribe(_ error: Error) {
         var errorMessage = ""
         if let error = error as? RecognizerError {
@@ -168,6 +237,9 @@ public actor SpeechRecognizer: Observable, ObservableObject {
 }
 
 extension SFSpeechRecognizer {
+    /// Solicita ou consulta a autorizacao do sistema para reconhecimento de fala.
+    /// - Retorno: `true` se autorizado, `false` caso contrario.
+    /// - Observacao: o primeiro acesso pode abrir dialog de permissao.
     static func hasAuthorizationToRecognize() async -> Bool {
         await withCheckedContinuation { continuation in
             requestAuthorization { status in
@@ -178,6 +250,9 @@ extension SFSpeechRecognizer {
 }
 
 extension AVAudioSession {
+    /    /// Solicita ou consulta a permissao do sistema para gravar audio.
+    /// - Retorno: `true` se autorizado, `false` se negado.
+    /// - Observacao: o primeiro acesso pode abrir dialog de permissao.
     func hasPermissionToRecord() async -> Bool {
         await withCheckedContinuation { continuation in
             AVAudioApplication.requestRecordPermission { authorized in
