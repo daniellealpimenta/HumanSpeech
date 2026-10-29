@@ -1,5 +1,10 @@
 # 🎤HumanSpeech - Package🎤
 
+![Swift](https://img.shields.io/badge/Swift-6.1-F05138?logo=swift&logoColor=white)
+![iOS](https://img.shields.io/badge/iOS-17+-000000?logo=apple&logoColor=white)
+![macOS](https://img.shields.io/badge/macOS-14+-000000?logo=apple&logoColor=white)
+![SPM](https://img.shields.io/badge/Swift%20Package%20Manager-compatible-F05138?logo=swift&logoColor=white)
+
 `HumanSpeech` é um helper em Swift para transcrever voz em texto usando `SFSpeechRecognizer` e `AVAudioEngine`. O pacote facilita a integração de reconhecimento de fala em apps iOS e macOS.
 
 ---
@@ -14,8 +19,29 @@
 
 ## 🔸Compatibilidade
 
-- iOS 15+ (recomendado)  
-- macOS 12+ (com microfone)
+- iOS 17+  
+- macOS 14+ (com microfone)
+
+---
+
+## 🔸Instalação
+
+No Xcode: **File › Add Package Dependencies…** e cole a URL:
+
+```
+https://github.com/daniellealpimenta/HumanSpeech.git
+```
+
+Ou, num `Package.swift`:
+
+```swift
+dependencies: [
+    .package(url: "https://github.com/daniellealpimenta/HumanSpeech.git", from: "1.0.0")
+],
+targets: [
+    .target(name: "MeuApp", dependencies: ["HumanSpeech"])
+]
+```
 
 ---
 
@@ -141,4 +167,10 @@ struct ContentView_Previews: PreviewProvider {
         ContentView()
     }
 }
+```
 
+---
+
+## 🔸Onde é usado
+
+- [**ZooWho**](https://github.com/daniellealpimenta/Challenge08): jogo de adivinhar animais em que a resposta é falada no microfone.
